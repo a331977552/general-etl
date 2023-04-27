@@ -8,6 +8,6 @@ public interface Assembler extends LifeCycle {
 
     public void addFeeder();
 
-    public void trigger(Context context);
+    public void trigger();
 
 }

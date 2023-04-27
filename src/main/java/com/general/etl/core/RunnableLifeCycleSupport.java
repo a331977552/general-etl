@@ -8,7 +8,7 @@ import lombok.extern.log4j.Log4j2;
 import org.springframework.util.StringUtils;
 
 @Log4j2
-public final class RunnableLifeCycleSupport {
+public final class RunnableLifeCycleSupport implements RunnableLifeCycle {
     LifeCycleSupport lifeCycle ;
     private RunnableLifeCycle embeddingObj;
     String simpleName;
@@ -22,34 +22,59 @@ public final class RunnableLifeCycleSupport {
     }
 
     private boolean started = false;
-    public void create() throws CreationException {
-        lifeCycle.create();
+    public void create(Context context) throws CreationException {
+        lifeCycle.create(context);
     }
 
     public void destroy() throws DestroyException {
         lifeCycle.destroy();
     }
-
+    @Override
     public boolean isCreated() {
         return lifeCycle.isCreated();
     }
 
+    @Override
     public boolean isDestroyed() {
         return lifeCycle.isDestroyed();
     }
 
-    public void start(Context context) throws ProcessStartException {
+    @Override
+    public Context context() {
+        return lifeCycle.context();
+    }
+
+    @Override
+    public void start() throws ProcessStartException {
         started = true;
         log.info("{} is started",simpleName);
     }
 
+
+    @Override
     public boolean isStarted() {
         return started;
     }
 
+    @Override
     public void stop() throws ProcessStopException {
         started = false;
         log.info("{} is stopped",simpleName);
+
+    }
+
+    @Override
+    public void stopNow() {
+
+    }
+
+    @Override
+    public void awaitStop() throws InterruptedException {
+
+    }
+
+    @Override
+    public void addRunnableLifecycleListener(RunnableLifeCycleListener lifeCycleListener) {
 
     }
 }

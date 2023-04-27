@@ -12,8 +12,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Phaser;
-import java.util.concurrent.Semaphore;
 import java.util.function.Consumer;
 
 @Log4j2
@@ -25,7 +23,7 @@ public class TradeAssembler extends BaseAssembler implements Consumer<Throwable>
 
     @Autowired
     RiskProcessor riskProcessor;
-    private CountDownLatch countDownLatch;
+    Thread mainThread;
 
 
     @Override
@@ -33,23 +31,29 @@ public class TradeAssembler extends BaseAssembler implements Consumer<Throwable>
 
     }
 
+
+
     @Override
-    protected void onTrigger(Context context) {
-        tradeProcessor.start(context);
+    protected void onTrigger() {
+        tradeProcessor.start();
         for (int i = 0; i < 10; i++) {
             tradeProcessor.feed(Arrays.asList(i+""));
         }
-        tradeProcessor.notifyStop();
+        //shutdown but continue to process what's left in the task queue.
+        tradeProcessor.stop();
         try {
-            countDownLatch.await();
+            System.out.println("awit stop");
+            riskProcessor.awaitStop();
+            System.out.println("stopped");
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
+
         log.info("process finished");
     }
 
     @Override
-    protected void onCreate() {
+    protected void onCreate(Context context) {
         addProcessor(tradeProcessor);
         addProcessor(riskProcessor);
         tradeProcessor.addDownStream(riskProcessor);
@@ -58,7 +62,6 @@ public class TradeAssembler extends BaseAssembler implements Consumer<Throwable>
         riskProcessor.addExceptionListener(this);
         tradeProcessor.addRunnableLifecycleListener(this);
         riskProcessor.addRunnableLifecycleListener(this);
-        countDownLatch = new CountDownLatch(2);
     }
     @Override
     protected void onDestroy() {
@@ -72,13 +75,14 @@ public class TradeAssembler extends BaseAssembler implements Consumer<Throwable>
 
     @Override
     public void accept(Throwable e) {
-        tradeProcessor.stopImmediately();
-        countDownLatch.countDown();
+        log.error("error :", e);
+        System.out.println("stop now");
+        tradeProcessor.stopNow();
+        riskProcessor.stopNow();
     }
 
     @Override
     public void onStop(RunnableLifeCycle lifeCycle) {
         log.info("stop, {}",lifeCycle);
-        countDownLatch.countDown();
     }
 }

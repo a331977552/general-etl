@@ -8,35 +8,32 @@ import java.util.List;
 
 public abstract class BaseAssembler implements Assembler{
 
+    LifeCycleSupport lifeCycleSupport = new LifeCycleSupport(this);
     private List<Processor<?,?>> list = new ArrayList<>();
     @Override
     public final void addProcessor(Processor<?, ?> processor) {
         list.add(processor);
     }
-
     @Override
-    public final void trigger(Context context) {
-        onTrigger(context);
+    public void trigger() {
+        onTrigger();
     }
 
-    protected abstract void onTrigger(Context context);
+    protected abstract void onTrigger();
 
     @Override
-    public final void create() throws CreationException {
-        onCreate();
+    public final void create(Context context) throws CreationException {
+        lifeCycleSupport.create(context);
+        onCreate(context);
         for (Processor<?, ?> processor : list) {
             if (!processor.isCreated()){
-                processor.create();
+                processor.create(context);
             }
         }
 
     }
 
-    protected void onCreated() {
-
-    }
-
-    protected abstract void onCreate();
+    protected abstract void onCreate(Context context);
 
     @Override
     public final void destroy() throws DestroyException {
@@ -46,12 +43,18 @@ public abstract class BaseAssembler implements Assembler{
                 processor.destroy();
             }
         }
+        lifeCycleSupport.destroy();
     }
 
     protected abstract void onDestroy();
 
     @Override
+    public Context context() {
+        return lifeCycleSupport.context();
+    }
+
+    @Override
     public boolean isDestroyed() {
-        return false;
+        return lifeCycleSupport.isDestroyed();
     }
 }

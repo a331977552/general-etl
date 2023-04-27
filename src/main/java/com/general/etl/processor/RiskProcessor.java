@@ -1,6 +1,7 @@
 package com.general.etl.processor;
 
 import com.general.etl.core.AbstractProcessor;
+import com.general.etl.core.Context;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -41,4 +42,6 @@ public class RiskProcessor extends AbstractProcessor<String,String> {
             e.printStackTrace();
         }
     }
+
+
 }

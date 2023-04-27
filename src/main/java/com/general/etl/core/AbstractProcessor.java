@@ -13,37 +13,46 @@ public abstract class AbstractProcessor<I, O> implements Processor<I, O> {
 
     private final Logger log = LoggerFactory.getLogger(this.getClass());
 
+    private final ContainerSupport componentsSupport = new ContainerSupport(this);
+    private final ContainerSupport modulesSupport = new ContainerSupport(this);
+    private final ContainerSupport downStreamsSupport = new ContainerSupport(this);
+
     private final RunnableLifeCycleSupport runnableLifeCycleSupport = new RunnableLifeCycleSupport(this);
+
 
     private final List<I> emptyInputs = Collections.emptyList();
     private final List<O> emptyOutputs = Collections.emptyList();
     private BlockingQueue<List<I>> receivingQueue;
-    private BlockingQueue<List<O>> outputQueue;
 
     private Thread processThread;
     private Thread outputThread;
+    private ExecutorService workers;
 
     @Value("${processor.queue.size:20}")
     private int queueSize;
 
-
+    @Value("${processor.worker.size:6}")
+    private int workSize;
+    private CountDownLatch countDownLatch;
     private final int timeWait = 5;
     private boolean running = false;
-    private boolean stopNow = false;
 
-    private final List<I> processingInputs = Collections.synchronizedList(new ArrayList<>());
+    private BlockingQueue<Future<List<O>>> tasksRunning;
 
     private List<Consumer<Throwable>> exceptionListeners = new ArrayList<>();
-    private List<Processor<O, ?>> downStreams =  new ArrayList<>();
     private List<RunnableLifeCycleListener> runnableLifeCycleListeners = new ArrayList<>();
 
     @Override
-    public final void create() throws CreationException {
+    public final void create(Context context) throws CreationException {
+        runnableLifeCycleSupport.create(context);
         receivingQueue = new ArrayBlockingQueue<>(queueSize);
-        outputQueue = new ArrayBlockingQueue<>(queueSize);
+        tasksRunning = new ArrayBlockingQueue<>(queueSize);
         onCreate();
-        runnableLifeCycleSupport.create();
+        modulesSupport.createComponentsIfPossible(context);
+        componentsSupport.createComponentsIfPossible(context);
+        countDownLatch = new CountDownLatch(2);
     }
+
 
     protected void onCreate() {
 
@@ -53,7 +62,8 @@ public abstract class AbstractProcessor<I, O> implements Processor<I, O> {
     public final void destroy() throws DestroyException {
         onDestroy();
         receivingQueue = null;
-        outputQueue = null;
+        modulesSupport.destroyComponentsIfPossible();
+        componentsSupport.destroyComponentsIfPossible();
         runnableLifeCycleSupport.destroy();
     }
 
@@ -72,8 +82,18 @@ public abstract class AbstractProcessor<I, O> implements Processor<I, O> {
     }
 
     @Override
-    public final void addModule(Module module) {
+    public final void addModule(ProcessorModule<?, ?> module) {
+        modulesSupport.addComponent(module);
+    }
 
+    @Override
+    public void addComponent(Contained contained) {
+        componentsSupport.addComponent(contained);
+    }
+
+    @Override
+    public List<Contained> getComponents() {
+        return componentsSupport.getComponents();
     }
 
     private void notifyException(Throwable e) {
@@ -88,80 +108,83 @@ public abstract class AbstractProcessor<I, O> implements Processor<I, O> {
     }
 
 
-    private void process() {
-        while (!stopNow && (receivingQueue.size() > 0 || running)) {
-            List<I> inputs = null;
-            try {
-                inputs = retrieveFromReceiving();
-            } catch (InterruptedException e) {
-                this.notifyException(e);
-                return;
+    private void processWorker() {
+        while ((!receivingQueue.isEmpty() || running)) {
+            if (Thread.currentThread().isInterrupted()) {
+                receivingQueue.clear();
+                break;
             }
+            List<I> inputs = retrieveFromRecQueue();
             //take all, and is processing receivingQueue == 0, output queue == 0; but processing is not empty
             for (I input : inputs) {
-                ThreadManagerImpl.getInstance().getExecutorService().submit(() -> {
-                    //
-                    processingInputs.add(input);
-                    List<O> result = AbstractProcessor.this.onProcess(input);
-                    processingInputs.remove(input);
-                    //
-                    postToOutput(result);
-                });
+                try {
+                    tasksRunning.put(workers.submit(() -> AbstractProcessor.this.onProcess(input)));
+                } catch (InterruptedException e) {
+                    log.error("unexpected interruption !!!", e);
+                }
             }
         }
+        countDownLatch.countDown();
     }
 
-    private List<I> retrieveFromReceiving() throws InterruptedException {
-        List<I> poll = receivingQueue.poll(timeWait, TimeUnit.SECONDS);
-        return poll == null ? emptyInputs : poll;
-    }
-
-    private void postToOutput(List<O> result) {
+    private List<I> retrieveFromRecQueue() {
         try {
-            outputQueue.put(result);
+            List<I> poll = receivingQueue.poll(timeWait, TimeUnit.SECONDS);
+            return poll == null ? emptyInputs : poll;
         } catch (InterruptedException e) {
-            AbstractProcessor.this.notifyException(e);
+            //todo，when exception occurs, this thread mayb be interrupted
+            log.error("unexpected interruption !!!", e);
         }
+        return Collections.emptyList();
     }
 
 
-    private void processFinish() {
-        while (!stopNow && (!processingInputs.isEmpty() || !receivingQueue.isEmpty() || !outputQueue.isEmpty() || running)) {
-            List<O> results;
-            try {
-                results = getResultFromOutputQueue();
-            } catch (InterruptedException e) {
-                this.notifyException(e);
-                return;
+    private void outputWorker() throws Exception {
+        while (!tasksRunning.isEmpty() || !receivingQueue.isEmpty() || running) {
+            if (Thread.currentThread().isInterrupted()) {
+                receivingQueue.clear();
+                tasksRunning.clear();
+                break;
             }
-            onProcessFinish(results);
-            notifyDownstream(results);
+            while (!tasksRunning.isEmpty()) {
+                Future<List<O>> future = tasksRunning.peek();
+                if (future.isDone()) {
+                    try {
+                        tasksRunning.take();
+                    } catch (InterruptedException e) {
+                        log.error("unexpected interruption !!!", e);
+                    }
+                    List<O> results = future.get();
+                    onProcessFinish(results);
+                    notifyDownstream(results);
+                }
+            }
         }
-
         //completely stop itself
-        this.stop();
-        for (Processor<O, ?> downStream : downStreams) {
-            downStream.notifyStop();
-        }
+        this.stopInternal();
+        downStreamsSupport.stopComponentsIfPossible(true);
+        countDownLatch.countDown();
     }
 
-    private void onProcessFinish(List<O> results) {
+    private void onProcessFinish(List<O> results) throws Exception {
         onOutput(results);
     }
 
-    private List<O> getResultFromOutputQueue() throws InterruptedException {
-        List<O> results = outputQueue.poll(timeWait, TimeUnit.SECONDS);
-        return results == null ? emptyOutputs : results;
-    }
 
     private void notifyDownstream(List<O> results) {
-        for (Processor<O, ?> downStream : downStreams) {
-            downStream.feed(results);
+        List<Contained> components = downStreamsSupport.getComponents();
+        for (Contained component : components) {
+            if (component instanceof Processor<?, ?>) {
+                ((Processor<O, ?>) component).feed(results);
+            }
         }
     }
 
-    private void stop() {
+    private void stopInternal() {
         onStop();
+        workers.shutdownNow();
+        modulesSupport.stopComponentsIfPossible();
+        componentsSupport.stopComponentsIfPossible();
         runnableLifeCycleSupport.stop();
         for (RunnableLifeCycleListener runnableLifeCycleListener : this.runnableLifeCycleListeners) {
             runnableLifeCycleListener.onStop(this);
@@ -170,7 +193,7 @@ public abstract class AbstractProcessor<I, O> implements Processor<I, O> {
 
     Thread.UncaughtExceptionHandler exceptionHandler = (t, e) -> AbstractProcessor.this.notifyException(e);
 
-    protected abstract void onOutput(List<O> output);
+    protected abstract void onOutput(List<O> output) throws Exception;
 
     protected abstract List<O> onProcess(I input) throws ProcessException;
 
@@ -180,7 +203,8 @@ public abstract class AbstractProcessor<I, O> implements Processor<I, O> {
             this.receivingQueue.put(inputs);
             log.info("put success: {}, size {}", inputs, this.receivingQueue.size());
         } catch (InterruptedException e) {
-            this.notifyException(e);
+            //todo，when exception occurs, this thread mayb be interrupted
+            log.error("unexpected interruption !!!", e);
         }
     }
 
@@ -191,35 +215,47 @@ public abstract class AbstractProcessor<I, O> implements Processor<I, O> {
 
     @Override
     public void addDownStream(Processor<O, ?> downStream) {
-        downStreams.add(downStream);
+        downStreamsSupport.addComponent(downStream);
     }
 
     @Override
-    public final void start(Context context) throws ProcessStartException {
+    public final void start() throws ProcessStartException {
         receivingQueue.clear();
-        outputQueue.clear();
-        runnableLifeCycleSupport.start(context);
+        runnableLifeCycleSupport.start();
         running = true;
-        stopNow = false;
-        onStart(context);
-
+        onStart();
         for (RunnableLifeCycleListener runnableLifeCycleListener : runnableLifeCycleListeners) {
             runnableLifeCycleListener.onStart(this);
         }
-        processThread = new Thread(AbstractProcessor.this::process);
-        outputThread = new Thread(AbstractProcessor.this::processFinish);
+        modulesSupport.startComponentsIfPossible();
+        componentsSupport.startComponentsIfPossible();
+        downStreamsSupport.startComponentsIfPossible();
+        processThread = new Thread(() -> {
+            try {
+                AbstractProcessor.this.processWorker();
+            } catch (Exception e) {
+                AbstractProcessor.this.notifyException(e);
+            }
+            System.out.println("process thread finished");
+        });
+        outputThread = new Thread(() -> {
+            try {
+                AbstractProcessor.this.outputWorker();
+            } catch (Exception e) {
+                AbstractProcessor.this.notifyException(e);
+            }
+            System.out.println("outputThread finished");
+        });
+        workers = Executors.newFixedThreadPool(workSize);
         processThread.setName("pro_" + this.getClass().getSimpleName());
         outputThread.setName("out_" + this.getClass().getSimpleName());
         processThread.setUncaughtExceptionHandler(exceptionHandler);
         outputThread.setUncaughtExceptionHandler(exceptionHandler);
         processThread.start();
         outputThread.start();
-        for (Processor<O, ?> downStream : downStreams) {
-            downStream.start(context);
-        }
     }
 
-    protected void onStart(Context context) {
+    protected void onStart() {
 
     }
 
@@ -229,7 +265,7 @@ public abstract class AbstractProcessor<I, O> implements Processor<I, O> {
     }
 
     @Override
-    public final void notifyStop() throws ProcessStopException {
+    public final void stop() throws ProcessStopException {
         running = false;
     }
 
@@ -238,7 +274,21 @@ public abstract class AbstractProcessor<I, O> implements Processor<I, O> {
     }
 
     @Override
-    public void stopImmediately() {
-        stopNow = true;
+    public void stopNow() {
+        this.stop();
+        workers.shutdownNow();
+        processThread.interrupt();
+        outputThread.interrupt();
+    }
+
+    @Override
+    public void awaitStop() throws InterruptedException {
+        countDownLatch.await();
+    }
+
+
+    @Override
+    public Context context() {
+        return runnableLifeCycleSupport.context();
     }
 }

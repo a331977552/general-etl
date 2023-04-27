@@ -4,8 +4,7 @@ import com.general.etl.exception.CreationException;
 import com.general.etl.exception.DestroyException;
 
 public interface LifeCycle {
-
-    void create() throws CreationException;
+    void create(Context context) throws CreationException;
 
     void destroy() throws DestroyException;
 
@@ -13,4 +12,5 @@ public interface LifeCycle {
 
     boolean isDestroyed();
 
+    Context context();
 }

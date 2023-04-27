@@ -11,6 +11,9 @@ public final class LifeCycleSupport implements LifeCycle {
     private String simpleName;
     private boolean created = false;
 
+
+    private Context context;
+
     public LifeCycleSupport(LifeCycle embeddingObj) {
         this.embeddingObj = embeddingObj;
         simpleName = embeddingObj.getClass().getSimpleName();
@@ -21,15 +24,21 @@ public final class LifeCycleSupport implements LifeCycle {
 
 
     @Override
-    public void create() throws CreationException {
+    public void create(Context context) throws CreationException {
         created = true;
+        this.context = context;
         log.info("{} is created",simpleName);
 
+    }
+
+    public Context context() {
+        return context;
     }
 
     @Override
     public void destroy() throws DestroyException {
         created = false;
+        context = null;
         log.info("{} is destroyed",simpleName);
     }
 
