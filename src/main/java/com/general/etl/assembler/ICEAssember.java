@@ -11,19 +11,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
-import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
 
 @Log4j2
 @Component
-public class TradeAssembler extends BaseAssembler implements Consumer<Throwable>, RunnableLifeCycleListener {
+public class ICEAssember extends BaseAssembler implements Consumer<Throwable>, RunnableLifeCycleListener {
 
     @Autowired
     TradeProcessor tradeProcessor;
 
     @Autowired
     RiskProcessor riskProcessor;
-    Thread mainThread;
 
 
     @Override
@@ -36,7 +34,8 @@ public class TradeAssembler extends BaseAssembler implements Consumer<Throwable>
     @Override
     protected void onTrigger() {
         tradeProcessor.start();
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 40-000-000; i++) {
+
             tradeProcessor.feed(Arrays.asList(i+""));
         }
         //shutdown but continue to process what's left in the task queue.

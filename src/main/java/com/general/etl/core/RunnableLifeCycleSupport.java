@@ -7,11 +7,16 @@ import com.general.etl.exception.ProcessStopException;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Log4j2
 public final class RunnableLifeCycleSupport implements RunnableLifeCycle {
     LifeCycleSupport lifeCycle ;
     private RunnableLifeCycle embeddingObj;
     String simpleName;
+    private List<RunnableLifeCycleListener> lifeCycleListeners = new ArrayList<>();
+
     public RunnableLifeCycleSupport(RunnableLifeCycle embeddingObj) {
         lifeCycle = new LifeCycleSupport(embeddingObj);
         this.embeddingObj = embeddingObj;
@@ -60,21 +65,20 @@ public final class RunnableLifeCycleSupport implements RunnableLifeCycle {
     public void stop() throws ProcessStopException {
         started = false;
         log.info("{} is stopped",simpleName);
-
     }
 
     @Override
     public void stopNow() {
-
+        this.stop();
     }
 
     @Override
-    public void awaitStop() throws InterruptedException {
-
+    public void awaitStop()  {
+        throw new UnsupportedOperationException("doesn't support awaitStop, you should implement this by yourself!!");
     }
 
     @Override
     public void addRunnableLifecycleListener(RunnableLifeCycleListener lifeCycleListener) {
-
+        this.lifeCycleListeners.add(lifeCycleListener);
     }
 }

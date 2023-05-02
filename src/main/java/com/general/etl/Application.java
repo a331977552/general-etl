@@ -1,12 +1,9 @@
 package com.general.etl;
 
 import com.general.etl.assembler.AssemblerManager;
-import com.general.etl.assembler.TradeAssembler;
+import com.general.etl.assembler.ICEAssember;
 import com.general.etl.core.Context;
 import com.general.etl.core.VendorEnum;
-import com.general.etl.exception.CreationException;
-import com.general.etl.exception.DestroyException;
-import com.mysql.cj.log.Log;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -24,7 +21,7 @@ public class Application {
                 .run(args);
 
         AssemblerManager manager = appContext.getBean(AssemblerManager.class);
-        manager.addAssembler(VendorEnum.TEST_VENDOR,appContext.getBean(TradeAssembler.class));
+        manager.addAssembler(VendorEnum.TEST_VENDOR,appContext.getBean(ICEAssember.class));
 
 
         Context context = new Context(VendorEnum.TEST_VENDOR);
