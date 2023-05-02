@@ -1,9 +1,6 @@
 package com.general.etl.assembler;
 
-import com.general.etl.core.BaseAssembler;
-import com.general.etl.core.Context;
-import com.general.etl.core.RunnableLifeCycle;
-import com.general.etl.core.RunnableLifeCycleListener;
+import com.general.etl.core.*;
 import com.general.etl.processor.RiskProcessor;
 import com.general.etl.processor.TradeProcessor;
 import lombok.extern.log4j.Log4j2;
@@ -42,7 +39,9 @@ public class ICEAssember extends BaseAssembler implements Consumer<Throwable>, R
         tradeProcessor.stop();
         try {
             System.out.println("awit stop");
-            riskProcessor.awaitStop();
+            for (Processor<?, ?> processor : getProcessors()) {
+                processor.awaitStop();
+            }
             System.out.println("stopped");
         } catch (InterruptedException e) {
             e.printStackTrace();
@@ -76,8 +75,9 @@ public class ICEAssember extends BaseAssembler implements Consumer<Throwable>, R
     public void accept(Throwable e) {
         log.error("error :", e);
         System.out.println("stop now");
-        tradeProcessor.stopNow();
-        riskProcessor.stopNow();
+        for (Processor<?, ?> processor : getProcessors()) {
+            processor.stopNow();
+        }
     }
 
     @Override

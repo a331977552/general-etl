@@ -9,6 +9,12 @@ import java.util.List;
 public abstract class BaseAssembler implements Assembler{
 
     LifeCycleSupport lifeCycleSupport = new LifeCycleSupport(this);
+
+    @Override
+    public List<Processor<?, ?>> getProcessors() {
+        return list;
+    }
+
     private List<Processor<?,?>> list = new ArrayList<>();
     @Override
     public final void addProcessor(Processor<?, ?> processor) {

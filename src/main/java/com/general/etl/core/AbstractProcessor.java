@@ -47,6 +47,26 @@ public abstract class AbstractProcessor<I, O> implements Processor<I, O> {
         runnableLifeCycleSupport.create(context);
         receivingQueue = new ArrayBlockingQueue<>(queueSize);
         tasksRunning = new ArrayBlockingQueue<>(queueSize);
+
+        processThread = new Thread(() -> {
+            try {
+                AbstractProcessor.this.processWorker();
+            } catch (Exception e) {
+                AbstractProcessor.this.notifyException(e);
+            }
+            System.out.println("process thread finished");
+        });
+        outputThread = new Thread(() -> {
+            try {
+                AbstractProcessor.this.outputWorker();
+            } catch (Exception e) {
+                AbstractProcessor.this.notifyException(e);
+            }
+            System.out.println("outputThread finished");
+        });
+
+        workers = Executors.newFixedThreadPool(workSize);
+
         onCreate();
         modulesSupport.createComponentsIfPossible(context);
         componentsSupport.createComponentsIfPossible(context);
@@ -230,23 +250,6 @@ public abstract class AbstractProcessor<I, O> implements Processor<I, O> {
         modulesSupport.startComponentsIfPossible();
         componentsSupport.startComponentsIfPossible();
         downStreamsSupport.startComponentsIfPossible();
-        processThread = new Thread(() -> {
-            try {
-                AbstractProcessor.this.processWorker();
-            } catch (Exception e) {
-                AbstractProcessor.this.notifyException(e);
-            }
-            System.out.println("process thread finished");
-        });
-        outputThread = new Thread(() -> {
-            try {
-                AbstractProcessor.this.outputWorker();
-            } catch (Exception e) {
-                AbstractProcessor.this.notifyException(e);
-            }
-            System.out.println("outputThread finished");
-        });
-        workers = Executors.newFixedThreadPool(workSize);
         processThread.setName("pro_" + this.getClass().getSimpleName());
         outputThread.setName("out_" + this.getClass().getSimpleName());
         processThread.setUncaughtExceptionHandler(exceptionHandler);
