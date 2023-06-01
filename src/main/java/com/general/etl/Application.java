@@ -24,7 +24,7 @@ public class Application {
         manager.addAssembler(VendorEnum.TEST_VENDOR,appContext.getBean(ICEAssember.class));
 
 
-        Context context = new Context(VendorEnum.TEST_VENDOR);
+        Context context = new Context(VendorEnum.TEST_VENDOR,Context.DEFAULT_BLOCK);
         manager.create(context);
         //multi thread in the certain depth
         try {

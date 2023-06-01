@@ -24,9 +24,9 @@ public class AssemblerManager implements LifeCycle {
     @Override
     public void create(Context context) throws CreationException {
         lifeCycleSupport.create(context);
-        currentAssembler = assemblers.get(context.currentVendor());
+        currentAssembler = assemblers.get(context.vendor());
         if (currentAssembler ==null)
-            throw new ProcessException("cannot find related vendor : "+ context.currentVendor());
+            throw new ProcessException("cannot find related vendor : "+ context.vendor());
         currentAssembler.create(context);
     }
 
